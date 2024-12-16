@@ -8,7 +8,7 @@ const connection = new Connection('http://127.0.0.1:8899');
 
 const main = async () => {
   // ... your Web3.js logic her
-  const publicKey = new PublicKey('CcXDtgNex3qFycGqSMDzY1dAMrdqLQN5h1RwNkv3PSvF');
+  const publicKey = new PublicKey('6hbJywFqqQwsEYttH1YSGiQqyZjd5Ph4w7tHWXDSRKXJ');
   const accountInfo = await connection.getAccountInfo(publicKey);
 
   if (accountInfo) {
