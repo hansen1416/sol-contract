@@ -1,38 +1,108 @@
-use anchor_lang::prelude::*;
-use anchor_lang::solana_program::entrypoint::ProgramResult;
-use anchor_spl::token::{ Token, TokenAccount, Transfer };
+// use anchor_lang::prelude::*;
+// use anchor_lang::solana_program::entrypoint::ProgramResult;
+// use anchor_spl::token::{ Token, TokenAccount, Transfer };
 
-declare_id!("CcXDtgNex3qFycGqSMDzY1dAMrdqLQN5h1RwNkv3PSvF");
+// declare_id!("CcXDtgNex3qFycGqSMDzY1dAMrdqLQN5h1RwNkv3PSvF");
+use anchor_lang::prelude::*;
+use anchor_spl::token::{ Token, TokenAccount, Transfer };
+use anchor_spl::token::instruction::AuthorityType;
+
+declare_id!("CcXDtgNex3qFycGqSMDzY1dAMrdqLQN5h1RwNkv3PSvF"); // Replace with your program's ID
 
 #[program]
-pub mod my_token_forwarder {
+pub mod token_transfer_relay {
     use super::*;
 
-    pub fn forward_tokens(ctx: Context<ForwardTokens>, amount: u64) -> ProgramResult {
-        let token_program = &ctx.accounts.token_program;
-        let source_account = &ctx.accounts.source_account;
-        let destination_account = &ctx.accounts.destination_account;
-        let authority = &ctx.accounts.authority;
+    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
+        ctx.accounts.relay_state.bump = *ctx.bumps.get("relay_state").unwrap();
+        Ok(())
+    }
 
-        let cpi_ctx = CpiContext::new(token_program.to_account_info(), Transfer {
-            from: source_account.to_account_info(),
-            to: destination_account.to_account_info(),
-            authority: authority.to_account_info(),
-        });
-        anchor_spl::token::transfer(cpi_ctx, amount)?;
+    pub fn relay_transfer<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RelayTransfer<'info>>,
+        amount: u64
+    ) -> Result<()> {
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.from.to_account_info(),
+            to: ctx.accounts.to.to_account_info(),
+            authority: ctx.accounts.authority.to_account_info(),
+        };
 
+        // Check if the authority is the expected PDA
+        let (expected_authority, bump) = Pubkey::find_program_address(
+            &[ctx.accounts.relay_state.to_account_info().key.as_ref()],
+            ctx.program_id
+        );
+
+        if expected_authority != *ctx.accounts.authority.key {
+            return Err(ErrorCode::InvalidAuthority.into());
+        }
+
+        anchor_spl::token::transfer(CpiContext::new(cpi_program, cpi_accounts), amount)?;
+
+        Ok(())
+    }
+
+    pub fn set_authority<'info>(
+        ctx: Context<'_, '_, 'info, 'info, SetAuthority<'info>>
+    ) -> Result<()> {
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+
+        // Set the program as the delegate authority
+        anchor_spl::token::instruction::set_authority(
+            cpi_program.key,
+            ctx.accounts.token_account.to_account_info().key,
+            Some(ctx.accounts.relay_state.key), // New authority (our PDA)
+            AuthorityType::AccountOwner,
+            ctx.accounts.current_authority.key,
+            &[&ctx.accounts.current_authority.key]
+        )?;
         Ok(())
     }
 }
 
 #[derive(Accounts)]
-pub struct ForwardTokens<'info> {
+pub struct Initialize<'info> {
+    #[account(init, payer = user, space = 8 + 1, seeds = [b"relay_state"], bump)]
+    pub relay_state: Account<'info, RelayState>,
     #[account(mut)]
-    pub source_account: Account<'info, TokenAccount>,
+    pub user: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct RelayTransfer<'info> {
     #[account(mut)]
-    pub destination_account: Account<'info, TokenAccount>,
-    pub authority: Signer<'info>,
+    pub from: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub to: Account<'info, TokenAccount>,
+    /// CHECK: Authority checked in the instruction
+    pub authority: AccountInfo<'info>, // This will be our PDA
     pub token_program: Program<'info, Token>,
+    #[account(seeds = [b"relay_state"], bump = relay_state.bump)]
+    pub relay_state: Account<'info, RelayState>,
+}
+
+#[derive(Accounts)]
+pub struct SetAuthority<'info> {
+    #[account(mut)]
+    pub token_account: Account<'info, TokenAccount>,
+    pub current_authority: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+    #[account(seeds = [b"relay_state"], bump = relay_state.bump)]
+    pub relay_state: Account<'info, RelayState>,
+}
+
+#[account]
+pub struct RelayState {
+    pub bump: u8,
+}
+
+#[error_code]
+pub enum ErrorCode {
+    #[msg("Invalid authority provided")]
+    InvalidAuthority,
 }
 
 // use anchor_lang::prelude::*;
