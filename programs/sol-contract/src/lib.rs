@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::entrypoint::ProgramResult;
 use anchor_spl::token::{ Token, TokenAccount, Transfer };
 
 declare_id!("CcXDtgNex3qFycGqSMDzY1dAMrdqLQN5h1RwNkv3PSvF");
@@ -18,7 +19,7 @@ pub mod my_token_forwarder {
             to: destination_account.to_account_info(),
             authority: authority.to_account_info(),
         });
-        token::transfer(cpi_ctx, amount)?;
+        anchor_spl::token::transfer(cpi_ctx, amount)?;
 
         Ok(())
     }
